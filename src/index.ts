@@ -329,7 +329,7 @@ export default async function piSentryMonitor(pi: ExtensionAPI) {
     }
   });
 
-  // --- input: capture user prompt for gen_ai.content.prompt ---
+  // --- input: capture user prompt for gen_ai.input.messages ---
   pi.on("input", (event) => {
     if (typeof event.text === "string") {
       lastUserPrompt = event.text;
@@ -372,9 +372,10 @@ export default async function piSentryMonitor(pi: ExtensionAPI) {
 
       // Record the user prompt that triggered this request
       if (config.recordInputs && lastUserPrompt) {
+        const inputMessages = JSON.stringify([{ role: "user", content: lastUserPrompt }]);
         requestSpan.setAttribute(
-          "gen_ai.content.prompt",
-          serializeAttribute(lastUserPrompt, config.maxAttributeLength),
+          "gen_ai.input.messages",
+          serializeAttribute(inputMessages, config.maxAttributeLength),
         );
       }
 
@@ -437,9 +438,10 @@ export default async function piSentryMonitor(pi: ExtensionAPI) {
 
       // Record user prompt (in case message_start didn't fire or prompt came after)
       if (config.recordInputs && lastUserPrompt) {
+        const inputMessages = JSON.stringify([{ role: "user", content: lastUserPrompt }]);
         usageSpan.setAttribute(
-          "gen_ai.content.prompt",
-          serializeAttribute(lastUserPrompt, config.maxAttributeLength),
+          "gen_ai.input.messages",
+          serializeAttribute(inputMessages, config.maxAttributeLength),
         );
       }
 
@@ -451,7 +453,7 @@ export default async function piSentryMonitor(pi: ExtensionAPI) {
           .join("\n");
         if (textContent.length > 0) {
           usageSpan.setAttribute(
-            "gen_ai.content.completion",
+            "gen_ai.response.text",
             serializeAttribute(textContent, config.maxAttributeLength),
           );
         }
