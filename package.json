@@ -1,13 +1,17 @@
 {
   "name": "pi-sentry-monitor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Sentry AI Monitoring extension for pi coding agent sessions and tool calls",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "pi": {
-    "extensions": ["dist/index.js"],
-    "skills": ["skills"]
+    "extensions": [
+      "dist/index.js"
+    ],
+    "skills": [
+      "skills"
+    ]
   },
   "exports": {
     ".": {
