@@ -11,9 +11,10 @@ You are setting up the `pi-sentry-monitor` extension, which instruments pi agent
 
 1. Check whether the extension is installed — install it if not
 2. Check for an existing config file — offer to update it if found
-3. Ask the user for their DSN and configuration preferences
-4. Write the config file
-5. Verify everything looks correct
+3. Auto-detect project name and developer identity
+4. Ask the user a small set of questions
+5. Write the config file
+6. Confirm and offer to verify
 
 ---
 
@@ -44,54 +45,86 @@ Use the `read` tool to check. If one exists, show the current config and ask: **
 
 ---
 
-## Step 3 — Gather configuration via questions
+## Step 3 — Auto-detect context
 
-Use the `/answer` command to ask all questions at once. Ask:
+Before asking questions, silently gather:
 
-1. **Sentry DSN** *(required)* — "Paste your DSN from Sentry → Project Settings → Client Keys. Looks like: `https://abc123@o456.ingest.sentry.io/789`"
+**Project name:**
+```bash
+basename "$PWD"
+```
 
-2. **Config scope** — "Should this config be project-local (`.pi/sentry-monitor.json`) or global (`~/.pi/agent/sentry-monitor.json`)? Project-local means it only applies here; global applies to all your pi sessions."
+**Developer identity** — try each in order, use the first that returns a value:
+```bash
+gh api user --jq .login 2>/dev/null        # GitHub username (most useful for team attribution)
+git config user.email 2>/dev/null           # fallback: git email
+git config user.name 2>/dev/null            # fallback: git name
+whoami                                      # last resort
+```
 
-3. **Environment** *(optional)* — "What environment name should appear on traces? e.g. `development`, `production`. Leave blank to omit."
-
-4. **Agent/project name** *(optional)* — "What name should appear on spans? Defaults to the project directory name (`basename $PWD`). Leave blank to use the default."
-
-5. **Record tool inputs** — "Record tool input arguments as span attributes? This lets you see exactly what args were passed to each tool call in Sentry. (yes/no, default: yes)"
-
-6. **Record tool outputs** — "Record tool output as span attributes? This lets you see what tools returned in Sentry. Can be verbose. (yes/no, default: yes)"
-
-7. **Traces sample rate** — "What fraction of sessions should be traced? `1` = 100%, `0.5` = 50%. For personal use, `1` is recommended. (default: 1)"
-
-8. **Custom tags** *(optional)* — "Any custom tags to attach to every span? e.g. `team:platform,project:myapp`. Leave blank to skip."
+Hold onto both — you'll use them to pre-fill answers and write the config.
 
 ---
 
-## Step 4 — Write the config file
+## Step 4 — Ask questions
 
-Build the config object from the answers. Only include fields that differ from defaults or were explicitly provided. Defaults are:
-- `tracesSampleRate`: 1
-- `recordInputs`: true
-- `recordOutputs`: true
+Use `/answer` to gather everything at once. Show the auto-detected values as defaults so the user only needs to change what's wrong.
 
-Example minimal config (just DSN):
+Ask:
+
+1. **Sentry DSN** *(required)* — "Paste your DSN from Sentry → Project Settings → Client Keys. Looks like: `https://abc123@o456.ingest.sentry.io/789`"
+
+2. **Config scope** — "Should this be project-local (`.pi/sentry-monitor.json`) or global (`~/.pi/agent/sentry-monitor.json`)? Project-local applies only here; global applies to all pi sessions on this machine."
+
+3. **Agent/project name** — "We'll use `<detected-project-name>` as the agent name on Sentry spans (from your current directory). Want to change it, or is that good?"
+
+4. **Developer tag** — "We detected your identity as `<detected-identity>`. Want to tag your traces with this? It lets you filter and break down Sentry data by developer when multiple people share the same Sentry project. (yes/no, default: yes)"
+
+5. **Environment** *(optional)* — "What environment name should appear on traces? e.g. `development`, `production`. Leave blank to omit."
+
+6. **Record tool inputs/outputs** — "Record tool inputs and outputs as span attributes in Sentry? Useful for debugging but can be verbose. (yes/no, default: yes)"
+
+7. **Traces sample rate** *(optional)* — "What fraction of sessions to trace? `1` = 100%, `0.5` = 50%. Leave blank for the default (1)."
+
+---
+
+## Step 5 — Write the config file
+
+Build the config from the answers. Only include fields that differ from defaults or were explicitly set. Defaults are: `tracesSampleRate: 1`, `recordInputs: true`, `recordOutputs: true`.
+
+If the user confirmed the developer tag, add it under `tags`:
 ```json
 {
-  "dsn": "https://abc123@o456.ingest.sentry.io/789"
+  "tags": {
+    "developer": "<detected-identity>"
+  }
 }
 ```
 
-Example full config:
+If the user also provided other custom tags, merge them in.
+
+For the agent name: only include `agentName` if the user explicitly changed it from the auto-detected value. The extension already defaults to `basename $PWD`, so there's no need to write it unless overridden.
+
+Example minimal config:
+```json
+{
+  "dsn": "https://abc123@o456.ingest.sentry.io/789",
+  "tags": {
+    "developer": "sergical"
+  }
+}
+```
+
+Example fuller config:
 ```json
 {
   "dsn": "https://abc123@o456.ingest.sentry.io/789",
   "environment": "development",
-  "agentName": "my-agent",
-  "projectName": "my-project",
-  "recordInputs": true,
+  "agentName": "custom-name",
   "recordOutputs": false,
   "tracesSampleRate": 0.5,
   "tags": {
-    "team": "platform"
+    "developer": "sergical"
   }
 }
 ```
@@ -100,45 +133,39 @@ Write the file using the `write` tool to the path the user chose.
 
 ---
 
-## Step 5 — Confirm and verify
+## Step 6 — Confirm and verify
 
 Show the user the config that was written and where it was saved.
 
 Then tell them:
-> "The extension will pick up this config on the next session start. Run `/reload` now to apply it to this session, or it will activate automatically next time you start pi."
+> "Run `/reload` to apply this to the current session, or it will activate automatically next time pi starts."
 
-Offer to run a quick trace verification using the Sentry CLI if it's available:
-```bash
-sentry --version 2>/dev/null && echo "available" || echo "not_available"
-```
-
-If available, after they've run a few commands, offer to run:
+If the Sentry CLI is available (`sentry --version`), offer to check for incoming traces after they've run a few commands:
 ```bash
 sentry trace list <org>/<project> --limit 5
 ```
-...to confirm traces are flowing.
 
 ---
 
-## Config reference (for your own reference during the conversation)
+## Config reference
 
 | Field | Default | Description |
 |-------|---------|-------------|
 | `dsn` | required | Sentry DSN |
 | `environment` | — | Environment tag |
-| `agentName` | project dirname | Name on spans |
-| `projectName` | project dirname | Name on spans |
-| `recordInputs` | `true` | Capture tool input args |
-| `recordOutputs` | `true` | Capture tool output |
-| `tracesSampleRate` | `1` | 0–1 sampling rate |
+| `agentName` | `basename $PWD` | Name shown on spans |
+| `projectName` | `basename $PWD` | Name shown on spans |
+| `recordInputs` | `true` | Capture tool input args as span attributes |
+| `recordOutputs` | `true` | Capture tool output as span attributes |
+| `tracesSampleRate` | `1` | Fraction of sessions to trace (0–1) |
 | `maxAttributeLength` | `12000` | Max chars per span attribute |
 | `enableMetrics` | `false` | Emit Sentry token usage metrics |
-| `tags` | `{}` | Custom tags on every span |
+| `tags` | `{}` | Custom tags on every span — great for `developer`, `team`, `env` |
 
 ## Troubleshooting
 
-**No traces appearing** — Check the DSN, ensure `tracesSampleRate` is `1`, look for `[pi-sentry-monitor]` errors in pi console output. Traces flush at the end of each agent turn.
+**No traces appearing** — Check the DSN, ensure `tracesSampleRate` is `1`, look for `[pi-sentry-monitor]` in pi console output. Traces flush at the end of each agent turn.
 
-**Spans show ~1ms duration** — Upgrade to `pi-sentry-monitor` >= 0.1.0. Earlier builds had a timing bug where `gen_ai.request` spans were not measuring real LLM latency.
+**Spans show ~1ms duration** — Upgrade to `pi-sentry-monitor` >= 0.1.0. Earlier builds had a timing bug.
 
 **Extension not loading** — Run `/reload` or restart pi. Confirm with `pi list | grep pi-sentry-monitor`.
