@@ -223,7 +223,15 @@ export default async function piSentryMonitor(pi: ExtensionAPI) {
       toolSpans.delete(key);
     }
 
+    // Orphaned request spans (e.g. cancelled mid-stream) may still have
+    // model "unknown" from when message_start created them.  Stamp them
+    // with the latest known model before ending so they don't show up
+    // without a model in Sentry.
     for (const [key, span] of requestSpans) {
+      if (modelId !== "unknown") {
+        span.setAttribute("gen_ai.request.model", modelId);
+        span.setAttribute("pi.model.provider", providerId);
+      }
       span.end();
       requestSpans.delete(key);
     }
@@ -406,15 +414,17 @@ export default async function piSentryMonitor(pi: ExtensionAPI) {
         },
       });
 
-      // Record the user prompt that triggered this request, then consume it
-      // so subsequent calls within the same turn don't inherit the stale value.
+      // Record the user prompt that triggered this request.  We intentionally
+      // keep lastUserPrompt alive so that *all* LLM request spans within the
+      // same turn (initial response → tool calls → follow-up) carry the user
+      // prompt that started the turn.  It is naturally replaced when the next
+      // `input` event fires.
       if (config.recordInputs && lastUserPrompt) {
         const inputMessages = JSON.stringify([{ role: "user", content: lastUserPrompt }]);
         requestSpan.setAttribute(
           "gen_ai.input.messages",
           serializeAttribute(inputMessages, config.maxAttributeLength),
         );
-        lastUserPrompt = undefined;
       }
 
       requestSpans.set(timestamp, requestSpan);
@@ -475,15 +485,12 @@ export default async function piSentryMonitor(pi: ExtensionAPI) {
       attachTokenUsage(usageSpan, msg.usage);
 
       // Record user prompt (in case message_start didn't fire or prompt came after).
-      // Consume it immediately so subsequent LLM calls within the same turn
-      // (responding to tool results) don't inherit the stale prompt.
       if (config.recordInputs && lastUserPrompt) {
         const inputMessages = JSON.stringify([{ role: "user", content: lastUserPrompt }]);
         usageSpan.setAttribute(
           "gen_ai.input.messages",
           serializeAttribute(inputMessages, config.maxAttributeLength),
         );
-        lastUserPrompt = undefined;
       }
 
       // Record assistant output on the request span
