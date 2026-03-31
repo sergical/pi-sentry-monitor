@@ -2,6 +2,17 @@
 
 All notable changes to `pi-sentry-monitor` are documented here.
 
+## [0.1.12] - 2026-03-31
+
+### Changed
+- **Dependency bump** — updated `@mariozechner/pi-coding-agent` dev dependency
+  from `^0.60.0` to `^0.64.0`.
+
+### Housekeeping
+- Removed stray research files that were accidentally committed.
+- Added `.pi/` to `.gitignore` to prevent agent workspace files from being
+  tracked.
+
 ## [0.1.11] - 2026-03-19
 
 ### Fixed
